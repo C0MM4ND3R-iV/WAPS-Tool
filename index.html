@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Figure Proportion Checker</title>
+  <script src="https://unpkg.com/konva@9/konva.min.js"></script>
+  <style>
+    :root{
+      --bg:#1e0d33;
+      --panel:#2a1647;
+      --accent:#7c5cff;
+      --text:#f5f3ff;
+      --muted:#cfc8ff;
+      --ok:#3fbf6f;
+      --mid:#ffcc66;
+      --bad:#ff6b6b;
+      --border:#4a2e79;
+
+      /* group colors */
+      --g-head:#59d38b;      /* head + eyes */
+      --g-shoulder:#51b8ff;  /* shoulders */
+      --g-torso:#ffd166;     /* neck base + crotch */
+      --g-hip:#ffa45a;       /* hips */
+      --g-feet:#b4b4b4;      /* feet */
+    }
+    html,body{height:100%}
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      display:grid; place-items:center;
+    }
+    .frame{
+      width:min(1100px,95vw);
+      display:grid; gap:16px; padding:18px;
+      background:var(--panel); border:1px solid var(--border);
+      border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.35);
+    }
+    .header{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+    h1{font-size:clamp(1.1rem,2.5vw,1.6rem); margin:0; letter-spacing:.3px}
+    .sub{color:var(--muted); font-size:.95rem}
+    .controls{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    input[type=file]{
+      appearance:none; border:1px dashed var(--accent); color:var(--text);
+      background:transparent; padding:10px 12px; border-radius:10px; cursor:pointer
+    }
+    .btn{
+      background:var(--accent); color:#0a0420; border:none; padding:10px 12px;
+      border-radius:10px; cursor:pointer; font-weight:600
+    }
+    .ghost{ background:transparent; color:var(--muted); border:1px solid var(--border) }
+    .toggle{ background:transparent; color:var(--text); border:1px solid var(--border) }
+    .grid{ display:grid; grid-template-columns:1.1fr .9fr; gap:16px }
+    @media (max-width:900px){ .grid{ grid-template-columns:1fr } }
+    .panel{ background:#20103b; border:1px solid var(--border); border-radius:14px; padding:14px }
+    .stage-wrap{ display:grid; gap:8px }
+    #stage{ border-radius:10px }
+    table{ width:100%; border-collapse:collapse }
+    th,td{ padding:8px 10px; border-bottom:1px solid #37265f; font-size:.95rem }
+    th{ text-align:left; color:var(--muted); font-weight:600 }
+    .chip{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px;
+      font-weight:700; font-size:.95rem; background:#160b2c; border:1px solid var(--border) }
+    .tag-ok{ color:var(--ok) } .tag-mid{ color:var(--mid) } .tag-bad{ color:var(--bad) }
+    .legend{ display:flex; gap:8px; flex-wrap:wrap; font-size:.9rem; color:var(--muted); align-items:center }
+    .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; border:1px solid #0003 }
+    .hint{ color:var(--muted); font-size:.9rem }
+
+    /* guide area under buttons */
+    .guide{
+      margin-top:10px;
+      background:#140a29;
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px 12px;
+      box-shadow:0 10px 25px rgba(0,0,0,.2);
+    }
+    .guide h4{ margin:0 0 6px 0; font-size:1rem }
+    .guide p{ margin:0; color:var(--muted) }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <div class="header">
+      <div>
+        <h1>Figure Proportion Checker</h1>
+        <div class="sub">Upload an image, place landmarks, and see ratios with the WAPS score.</div>
+      </div>
+      <div class="controls">
+        <input type="file" id="file" accept="image/*" />
+        <button class="btn" id="help">Help</button>
+        <button class="btn toggle" id="feetToggle" aria-pressed="false">Feet visible</button>
+        <button class="btn" id="exportPng">Export PNG</button>
+        <button class="btn" id="exportJson">Export JSON</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="panel stage-wrap">
+        <div id="stage"></div>
+        <div class="hint">Drag the colored dots to exact positions. Follow the steps on the right. You can reopen the guide with Help.</div>
+      </div>
+
+      <div class="panel">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <div id="score" class="chip">WAPS: N/A</div>
+          <div class="legend">
+            <span class="dot" style="background:var(--g-head)"></span> Head
+            <span class="dot" style="background:var(--g-shoulder)"></span> Shoulders
+            <span class="dot" style="background:var(--g-torso)"></span> Torso midline
+            <span class="dot" style="background:var(--g-hip)"></span> Hips
+            <span class="dot" style="background:var(--g-feet)"></span> Feet
+          </div>
+        </div>
+
+        <table style="margin-top:10px">
+          <thead>
+            <tr><th>Metric</th><th>Value</th><th>Score</th></tr>
+          </thead>
+          <tbody id="results"></tbody>
+        </table>
+
+        <!-- onboarding controls + static guide text under the buttons -->
+        <div id="steps" style="margin-top:12px; display:grid; gap:8px">
+          <div class="hint">
+            Guided order: 1 Head top, 2 Chin, 3 Head left, 4 Head right, 5 Eye left, 6 Eye right, 7 Shoulder L, 8 Shoulder R, 9 Hip L, 10 Hip R, 11 Neck base, 12 Crotch, 13 Foot L, 14 Foot R.
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+            <button class="btn ghost" id="prevStep">Previous</button>
+            <button class="btn" id="nextStep">Next</button>
+            <button class="btn ghost" id="skipStep">Skip</button>
+            <div class="hint" id="progress">Step 1 of 14</div>
+          </div>
+
+          <div id="guide" class="guide" role="status" aria-live="polite">
+            <h4 id="guideTitle">Place head top</h4>
+            <p id="guideText">Use the highest point of the skull. Ignore hair volume.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">
+      Processing stays on your device. This is a proportion estimator. It is not an age verification tool.
+    </div>
+  </div>
+
+<script>
+/* ---------- Landmarks, groups, and step texts ---------- */
+const pointNames = [
+  "head_top","chin","head_left","head_right",
+  "eye_left","eye_right","shoulder_left","shoulder_right",
+  "hip_left","hip_right","neck_base","crotch","foot_left","foot_right"
+];
+
+const groups = {
+  head: ["head_top","chin","head_left","head_right","eye_left","eye_right"],
+  shoulder: ["shoulder_left","shoulder_right"],
+  torso: ["neck_base","crotch"],
+  hip: ["hip_left","hip_right"],
+  feet: ["foot_left","foot_right"]
+};
+
+function groupOf(name){
+  if(groups.head.includes(name)) return "head";
+  if(groups.shoulder.includes(name)) return "shoulder";
+  if(groups.torso.includes(name)) return "torso";
+  if(groups.hip.includes(name)) return "hip";
+  return "feet";
+}
+function colorOf(name){
+  const g = groupOf(name);
+  return g==="head" ? getCSS("--g-head")
+       : g==="shoulder" ? getCSS("--g-shoulder")
+       : g==="torso" ? getCSS("--g-torso")
+       : g==="hip" ? getCSS("--g-hip")
+       : getCSS("--g-feet");
+}
+function getCSS(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+const stepHelp = {
+  head_top: ["Place head top","Use the highest point of the skull. Ignore hair volume."],
+  chin: ["Place chin","Use the lowest point of the chin. If the mouth is open use the bone point."],
+  head_left: ["Place left head edge","Touch the widest bony point of the skull, not hair."],
+  head_right: ["Place right head edge","Touch the widest bony point of the skull, not hair."],
+  eye_left: ["Place left eye center","Aim roughly at the center of the visible iris."],
+  eye_right: ["Place right eye center","Aim roughly at the center of the visible iris."],
+  shoulder_left: ["Place left shoulder","Use the outermost acromion point."],
+  shoulder_right: ["Place right shoulder","Use the outermost acromion point."],
+  hip_left: ["Place left hip width","Use the outermost pelvis crest, not fabric."],
+  hip_right: ["Place right hip width","Use the outermost pelvis crest, not fabric."],
+  neck_base: ["Place neck base","Where the neck meets the torso at the front."],
+  crotch: ["Place crotch","The midpoint between legs at the highest visible point."],
+  foot_left: ["Place left foot ground","Touch the ground contact point."],
+  foot_right: ["Place right foot ground","Touch the ground contact point."]
+};
+
+let stage = new Konva.Stage({ container: 'stage', width: 900, height: 560 });
+let layer = new Konva.Layer(); stage.add(layer);
+let imgNode = new Konva.Image(); layer.add(imgNode);
+
+const markers = {};
+const markerStyleBase = { radius: 6, stroke: '#fff', strokeWidth: 2, draggable: true, shadowColor:'#000', shadowBlur:6, shadowOpacity:.25 };
+const haloStyle = { radius: 16, stroke: '#cbbaff', strokeWidth: 1.2, dash:[4,4], opacity: .9 };
+let halo = null;
+
+let currentStep = 0;
+let ignoreFeet = false;
+
+/* ---------- Small helpers ---------- */
+function dist(a,b){ return Math.hypot(a.x()-b.x(), a.y()-b.y()); }
+function midY(a,b){ return (a+b)/2; }
+function fmt(v,isPct=false){ if(Number.isNaN(v)) return 'N/A'; return isPct ? v.toFixed(1)+'%' : v.toFixed(2) }
+function stepKey(i){ return pointNames[i] }
+function updateProgress(){
+  document.getElementById('progress').textContent = `Step ${currentStep+1} of ${pointNames.length}`;
+}
+function updateGuide(point){
+  const [t, p] = stepHelp[point];
+  document.getElementById('guideTitle').textContent = t;
+  document.getElementById('guideText').textContent = p;
+}
+function highlight(point){
+  if(halo) halo.destroy();
+  if(!markers[point]) return;
+  halo = new Konva.Circle({ x: markers[point].x(), y: markers[point].y(), ...haloStyle });
+  layer.add(halo);
+  const tween = new Konva.Tween({ node: halo, radius: 26, opacity:.25, duration:.8, yoyo:true, repeat:Infinity });
+  tween.play();
+  layer.draw();
+}
+
+/* ---------- Calculation ---------- */
+function recalc(){
+  const rEl = document.getElementById('results');
+  rEl.innerHTML = '';
+
+  if(!markers.head_top || !markers.chin) {
+    document.getElementById('score').textContent = 'WAPS: N/A';
+    return;
+  }
+
+  const headH = dist(markers.head_top, markers.chin);
+  const headW = (markers.head_left && markers.head_right) ? dist(markers.head_left, markers.head_right) : NaN;
+
+  // Feet can be ignored via toggle
+  const feetY = ignoreFeet
+    ? NaN
+    : (markers.foot_left && markers.foot_right) ? midY(markers.foot_left.y(), markers.foot_right.y()) : NaN;
+
+  const totalH = Number.isNaN(feetY) ? NaN : Math.abs(markers.head_top.y() - feetY);
+  const shoulder = (markers.shoulder_left && markers.shoulder_right) ? dist(markers.shoulder_left, markers.shoulder_right) : NaN;
+  const hip = (markers.hip_left && markers.hip_right) ? dist(markers.hip_left, markers.hip_right) : NaN;
+  const torso = (markers.neck_base && markers.crotch) ? dist(markers.neck_base, markers.crotch) : NaN;
+  const legs = (markers.crotch && !Number.isNaN(feetY)) ? Math.abs(markers.crotch.y() - feetY) : NaN;
+  const eyeY = (markers.eye_left && markers.eye_right) ? midY(markers.eye_left.y(), markers.eye_right.y()) : NaN;
+
+  const vals = {
+    heads_total: totalH && headH ? totalH / headH : NaN,
+    shoulder_head: shoulder && headW ? shoulder / headW : NaN,
+    torso_head: torso && headH ? torso / headH : NaN,
+    leg_total_pct: legs && totalH ? (legs / totalH) * 100 : NaN,
+    eye_in_head_pct: headH && !Number.isNaN(eyeY) ? (Math.abs(eyeY - markers.head_top.y()) / headH) * 100 : NaN,
+    hip_shoulder_pct: hip && shoulder ? (hip / shoulder) * 100 : NaN
+  };
+
+  const scoreFns = {
+    heads_total: v => Number.isNaN(v) ? null : (v >= 7.0 ? 2 : v >= 6.5 ? 1 : 0),
+    shoulder_head: v => Number.isNaN(v) ? null : (v >= 2.0 ? 2 : v >= 1.9 ? 1 : 0),
+    torso_head: v => Number.isNaN(v) ? null : (v >= 2.5 ? 2 : v >= 2.2 ? 1 : 0),
+    leg_total_pct: v => Number.isNaN(v) ? null : (v >= 50 ? 2 : v >= 48 ? 1 : 0),
+    eye_in_head_pct: v => Number.isNaN(v) ? null : (v >= 48 && v <= 50 ? 2 : v <= 47 ? 0 : 1),
+    hip_shoulder_pct: v => Number.isNaN(v) ? null : (v >= 75 ? 2 : v <= 74 ? 0 : 1)
+  };
+
+  const rows = [
+    ["Total height in heads", vals.heads_total, scoreFns.heads_total(vals.heads_total), false, "feet"],
+    ["Shoulder width / Head width", vals.shoulder_head, scoreFns.shoulder_head(vals.shoulder_head), false, null],
+    ["Torso height / Head height", vals.torso_head, scoreFns.torso_head(vals.torso_head), false, null],
+    ["Leg length of total height", vals.leg_total_pct, scoreFns.leg_total_pct(vals.leg_total_pct), true, "feet"],
+    ["Eye position within head", vals.eye_in_head_pct, scoreFns.eye_in_head_pct(vals.eye_in_head_pct), true, null],
+    ["Hip width / Shoulder width", vals.hip_shoulder_pct, scoreFns.hip_shoulder_pct(vals.hip_shoulder_pct), true, null]
+  ];
+
+  // Render rows, skip feet dependent rows when feet are disabled
+  let sum = 0, n = 0;
+  for(const [label,val,sc,isPct,depends] of rows){
+    const effectiveVal = (ignoreFeet && depends==="feet") ? NaN : val;
+    const effectiveScore = (ignoreFeet && depends==="feet") ? null : sc;
+    const tr = document.createElement('tr');
+    const cls = effectiveScore===2?'tag-ok': effectiveScore===1?'tag-mid': effectiveScore===0?'tag-bad':'';
+    tr.innerHTML = `
+      <td>${label}${depends==="feet" && ignoreFeet ? " (ignored)" : ""}</td>
+      <td>${fmt(effectiveVal,isPct)}</td>
+      <td class="${cls}"><strong>${effectiveScore===null?'N/A':effectiveScore}</strong></td>
+    `;
+    rEl.appendChild(tr);
+    if(effectiveScore!==null){ sum+=effectiveScore; n++; }
+  }
+  const avg = n ? (sum/n) : null;
+  const verdict = avg===null ? 'N/A' : (avg>=1.5 ? 'Adult-like' : avg>=1.0 ? 'Ambiguous or adolescent range' : 'Juvenile-proportioned');
+  document.getElementById('score').textContent = `WAPS: ${avg===null?'N/A':avg.toFixed(2)}  |  ${verdict}`;
+}
+
+/* ---------- Marker management ---------- */
+function addMarker(name, x, y){
+  const style = { ...markerStyleBase, fill: colorOf(name) };
+  const c = new Konva.Circle({ x, y, ...style });
+  c.on('dragmove', () => { if(halo){ halo.position(c.position()); layer.batchDraw(); } recalc(); });
+  c.on('dragend', recalc);
+  layer.add(c); markers[name] = c; layer.draw();
+}
+function resetMarkers(){
+  for(const k in markers){ markers[k].destroy(); delete markers[k]; }
+  if(halo){ halo.destroy(); halo=null; }
+  layer.draw();
+}
+
+/* ---------- Onboarding controls ---------- */
+function startGuide(){
+  currentStep = 0;
+  updateProgress();
+  const key = stepKey(currentStep);
+  updateGuide(key);
+  highlight(key);
+}
+function nextStep(){
+  if(currentStep < pointNames.length-1){
+    currentStep++;
+    // If feet are ignored, auto skip foot steps
+    if(ignoreFeet && (stepKey(currentStep)==="foot_left" || stepKey(currentStep)==="foot_right")){
+      if(currentStep < pointNames.length-1) currentStep++;
+    }
+    updateProgress();
+    const key = stepKey(currentStep);
+    updateGuide(key);
+    highlight(key);
+  }
+}
+function prevStep(){
+  if(currentStep > 0){
+    currentStep--;
+    if(ignoreFeet && (stepKey(currentStep)==="foot_left" || stepKey(currentStep)==="foot_right")){
+      if(currentStep > 0) currentStep--;
+    }
+    updateProgress();
+    const key = stepKey(currentStep);
+    updateGuide(key);
+    highlight(key);
+  }
+}
+
+/* ---------- File load ---------- */
+document.getElementById('file').addEventListener('change', e=>{
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      resetMarkers();
+      const maxW = Math.min(980, window.innerWidth - 80);
+      const maxH = 520;
+      const scale = Math.min(maxW / img.width, maxH / img.height);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+
+      imgNode.image(img); imgNode.width(w); imgNode.height(h);
+      stage.size({ width:w, height:h }); layer.draw();
+
+      // seed markers near center
+      const cx=w*0.5, cy=h*0.35;
+      pointNames.forEach((p,i)=> addMarker(p, cx+(i%2?30:-30), cy+i*6));
+
+      // Hide feet markers if toggle is active
+      applyFeetVisibility();
+
+      recalc();
+      startGuide();
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+/* ---------- Export buttons ---------- */
+document.getElementById('exportPng').addEventListener('click', ()=>{
+  const labels = [];
+  Object.entries(markers).forEach(([name, c])=>{
+    if(ignoreFeet && (name==="foot_left" || name==="foot_right")) return;
+    const t = new Konva.Text({ x: c.x()+8, y: c.y()-14, text: name, fontSize: 10, fill: '#cbbaff' });
+    layer.add(t); labels.push(t);
+  });
+  layer.draw();
+  const url = stage.toDataURL({ pixelRatio: 2 });
+  labels.forEach(t=> t.destroy()); layer.draw();
+
+  const a = document.createElement('a');
+  a.href = url; a.download = 'figure-check.png'; a.click();
+});
+
+document.getElementById('exportJson').addEventListener('click', ()=>{
+  const data = {};
+  Object.entries(markers).forEach(([k,v])=>{
+    if(ignoreFeet && (k==="foot_left" || k==="foot_right")) return;
+    data[k] = { x: v.x(), y: v.y() };
+  });
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'landmarks.json'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+/* ---------- Buttons ---------- */
+document.getElementById('help').addEventListener('click', ()=>{
+  if(!imgNode.image()){ alert('Load an image first.'); return; }
+  startGuide();
+});
+document.getElementById('nextStep').addEventListener('click', nextStep);
+document.getElementById('prevStep').addEventListener('click', prevStep);
+document.getElementById('skipStep').addEventListener('click', nextStep);
+
+document.getElementById('feetToggle').addEventListener('click', ()=>{
+  ignoreFeet = !ignoreFeet;
+  applyFeetVisibility();
+  recalc();
+  // If you are currently on a feet step, skip forward
+  if(ignoreFeet && (stepKey(currentStep)==="foot_left" || stepKey(currentStep)==="foot_right")){
+    nextStep();
+  }
+});
+
+/* ---------- Feet visibility ---------- */
+function applyFeetVisibility(){
+  const btn = document.getElementById('feetToggle');
+  btn.setAttribute('aria-pressed', ignoreFeet ? 'true' : 'false');
+  btn.textContent = ignoreFeet ? 'Feet not visible' : 'Feet visible';
+
+  const footNames = ["foot_left","foot_right"];
+  footNames.forEach(n=>{
+    const m = markers[n];
+    if(!m) return;
+    if(ignoreFeet){
+      m.hide();
+    } else {
+      m.show();
+      m.fill(colorOf(n));
+    }
+  });
+  layer.draw();
+}
+</script>
+</body>
+</html>
