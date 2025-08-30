@@ -67,7 +67,6 @@
     .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; border:1px solid #0003 }
     .hint{ color:var(--muted); font-size:.9rem }
 
-    /* guide area under buttons */
     .guide{
       margin-top:10px;
       background:#140a29;
@@ -121,7 +120,6 @@
           <tbody id="results"></tbody>
         </table>
 
-        <!-- onboarding controls + static guide text under the buttons -->
         <div id="steps" style="margin-top:12px; display:grid; gap:8px">
           <div class="hint">
             Guided order: 1 Head top, 2 Chin, 3 Head left, 4 Head right, 5 Eye left, 6 Eye right, 7 Shoulder L, 8 Shoulder R, 9 Hip L, 10 Hip R, 11 Neck base, 12 Crotch, 13 Foot L, 14 Foot R.
@@ -202,7 +200,7 @@ let imgNode = new Konva.Image(); layer.add(imgNode);
 
 const markers = {};
 const markerStyleBase = { radius: 6, stroke: '#fff', strokeWidth: 2, draggable: true, shadowColor:'#000', shadowBlur:6, shadowOpacity:.25 };
-const haloStyle = { radius: 16, stroke: '#cbbaff', strokeWidth: 1.2, dash:[4,4], opacity: .9 };
+const haloStyle = { radius: 16, stroke: '#cbbaff', strokeWidth: 1.2, dash:[4,4], opacity: .9, listening: false };
 let halo = null;
 
 let currentStep = 0;
@@ -213,6 +211,15 @@ function dist(a,b){ return Math.hypot(a.x()-b.x(), a.y()-b.y()); }
 function midY(a,b){ return (a+b)/2; }
 function fmt(v,isPct=false){ if(Number.isNaN(v)) return 'N/A'; return isPct ? v.toFixed(1)+'%' : v.toFixed(2) }
 function stepKey(i){ return pointNames[i] }
+function setActiveStepByName(name){
+  const idx = pointNames.indexOf(name);
+  if(idx < 0) return;
+  if(ignoreFeet && (name==="foot_left" || name==="foot_right")) return;
+  currentStep = idx;
+  updateProgress();
+  updateGuide(name);
+  highlight(name);
+}
 function updateProgress(){
   document.getElementById('progress').textContent = `Step ${currentStep+1} of ${pointNames.length}`;
 }
@@ -244,7 +251,6 @@ function recalc(){
   const headH = dist(markers.head_top, markers.chin);
   const headW = (markers.head_left && markers.head_right) ? dist(markers.head_left, markers.head_right) : NaN;
 
-  // Feet can be ignored via toggle
   const feetY = ignoreFeet
     ? NaN
     : (markers.foot_left && markers.foot_right) ? midY(markers.foot_left.y(), markers.foot_right.y()) : NaN;
@@ -283,7 +289,6 @@ function recalc(){
     ["Hip width / Shoulder width", vals.hip_shoulder_pct, scoreFns.hip_shoulder_pct(vals.hip_shoulder_pct), true, null]
   ];
 
-  // Render rows, skip feet dependent rows when feet are disabled
   let sum = 0, n = 0;
   for(const [label,val,sc,isPct,depends] of rows){
     const effectiveVal = (ignoreFeet && depends==="feet") ? NaN : val;
@@ -307,8 +312,19 @@ function recalc(){
 function addMarker(name, x, y){
   const style = { ...markerStyleBase, fill: colorOf(name) };
   const c = new Konva.Circle({ x, y, ...style });
-  c.on('dragmove', () => { if(halo){ halo.position(c.position()); layer.batchDraw(); } recalc(); });
+
+  // Select this point when clicked or when a drag starts
+  const selectThis = () => setActiveStepByName(name);
+  c.on('mousedown', selectThis);
+  c.on('touchstart', selectThis);
+  c.on('dragstart', selectThis);
+
+  c.on('dragmove', () => {
+    if(halo){ halo.position(c.position()); layer.batchDraw(); }
+    recalc();
+  });
   c.on('dragend', recalc);
+
   layer.add(c); markers[name] = c; layer.draw();
 }
 function resetMarkers(){
@@ -317,7 +333,7 @@ function resetMarkers(){
   layer.draw();
 }
 
-/* ---------- Onboarding controls ---------- */
+/* ---------- Guided navigation ---------- */
 function startGuide(){
   currentStep = 0;
   updateProgress();
@@ -328,12 +344,11 @@ function startGuide(){
 function nextStep(){
   if(currentStep < pointNames.length-1){
     currentStep++;
-    // If feet are ignored, auto skip foot steps
     if(ignoreFeet && (stepKey(currentStep)==="foot_left" || stepKey(currentStep)==="foot_right")){
       if(currentStep < pointNames.length-1) currentStep++;
     }
-    updateProgress();
     const key = stepKey(currentStep);
+    updateProgress();
     updateGuide(key);
     highlight(key);
   }
@@ -344,8 +359,8 @@ function prevStep(){
     if(ignoreFeet && (stepKey(currentStep)==="foot_left" || stepKey(currentStep)==="foot_right")){
       if(currentStep > 0) currentStep--;
     }
-    updateProgress();
     const key = stepKey(currentStep);
+    updateProgress();
     updateGuide(key);
     highlight(key);
   }
@@ -368,13 +383,10 @@ document.getElementById('file').addEventListener('change', e=>{
       imgNode.image(img); imgNode.width(w); imgNode.height(h);
       stage.size({ width:w, height:h }); layer.draw();
 
-      // seed markers near center
       const cx=w*0.5, cy=h*0.35;
       pointNames.forEach((p,i)=> addMarker(p, cx+(i%2?30:-30), cy+i*6));
 
-      // Hide feet markers if toggle is active
       applyFeetVisibility();
-
       recalc();
       startGuide();
     };
@@ -425,7 +437,6 @@ document.getElementById('feetToggle').addEventListener('click', ()=>{
   ignoreFeet = !ignoreFeet;
   applyFeetVisibility();
   recalc();
-  // If you are currently on a feet step, skip forward
   if(ignoreFeet && (stepKey(currentStep)==="foot_left" || stepKey(currentStep)==="foot_right")){
     nextStep();
   }
