@@ -492,13 +492,13 @@ async function ensureModels(){
   );
 
   faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: "…/face_landmarker.task" },
+    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" },
     runningMode: "IMAGE",
     numFaces: 1
   });
 
   poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: "…/pose_landmarker_lite.task" },
+    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" },
     runningMode: "IMAGE",
     numPoses: 1
   });
