@@ -3,9 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Figure Proportion Checker</title>
-  <script src="https://unpkg.com/konva@9/konva.min.js"></script>
-  <style>
+  <title>Figure Proportion Checker — v1.2</title>
+  <script src="https://unpkg.com/konva@9/konva.min.js"></script> 
+  <!-- MediaPipe Tasks Vision -->
+  <script type="module">
+  import { FaceLandmarker, PoseLandmarker, FilesetResolver } 
+    from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/vision_bundle.mjs";
+
+  window.MediapipeVision = { FaceLandmarker, PoseLandmarker, FilesetResolver };
+  </script>
+  <style> 
     :root{
       --bg:#1e0d33;
       --panel:#2a1647;
@@ -77,6 +84,9 @@
     }
     .guide h4{ margin:0 0 6px 0; font-size:1rem }
     .guide p{ margin:0; color:var(--muted) }
+
+    .badge{ font-size:.8rem; color:#cbbaff; border:1px solid var(--border); padding:4px 8px; border-radius:999px; background:#160b2c }
+    .loading{ opacity:.6; pointer-events:none }
   </style>
 </head>
 <body>
@@ -87,8 +97,10 @@
         <div class="sub">Upload an image, place landmarks, and see ratios with the WAPS score.</div>
       </div>
       <div class="controls">
+        <span class="badge">v1.2</span>
         <input type="file" id="file" accept="image/*" />
         <button class="btn" id="help">Help</button>
+        <button class="btn" id="autoSeed">Auto-place landmarks (beta)</button>
         <button class="btn toggle" id="feetToggle" aria-pressed="false">Feet visible</button>
         <button class="btn" id="exportPng">Export PNG</button>
         <button class="btn" id="exportJson">Export JSON</button>
@@ -98,7 +110,7 @@
     <div class="grid">
       <div class="panel stage-wrap">
         <div id="stage"></div>
-        <div class="hint">Drag the colored dots to exact positions. Follow the steps on the right. You can reopen the guide with Help.</div>
+        <div class="hint">Drag the colored dots to exact positions. Use Auto-place to get a starting guess. You can reopen the guide with Help.</div>
       </div>
 
       <div class="panel">
@@ -206,7 +218,6 @@ let halo = null;
 let currentStep = 0;
 let ignoreFeet = false;
 
-/* ---------- Small helpers ---------- */
 function dist(a,b){ return Math.hypot(a.x()-b.x(), a.y()-b.y()); }
 function midY(a,b){ return (a+b)/2; }
 function fmt(v,isPct=false){ if(Number.isNaN(v)) return 'N/A'; return isPct ? v.toFixed(1)+'%' : v.toFixed(2) }
@@ -238,7 +249,7 @@ function highlight(point){
   layer.draw();
 }
 
-/* ---------- Calculation ---------- */
+/* ---------- Calculation and rendering ---------- */
 function recalc(){
   const rEl = document.getElementById('results');
   rEl.innerHTML = '';
@@ -313,7 +324,6 @@ function addMarker(name, x, y){
   const style = { ...markerStyleBase, fill: colorOf(name) };
   const c = new Konva.Circle({ x, y, ...style });
 
-  // Select this point when clicked or when a drag starts
   const selectThis = () => setActiveStepByName(name);
   c.on('mousedown', selectThis);
   c.on('touchstart', selectThis);
@@ -383,6 +393,7 @@ document.getElementById('file').addEventListener('change', e=>{
       imgNode.image(img); imgNode.width(w); imgNode.height(h);
       stage.size({ width:w, height:h }); layer.draw();
 
+      // seed markers near center
       const cx=w*0.5, cy=h*0.35;
       pointNames.forEach((p,i)=> addMarker(p, cx+(i%2?30:-30), cy+i*6));
 
@@ -461,6 +472,171 @@ function applyFeetVisibility(){
   });
   layer.draw();
 }
+
+/* ============================================================
+   Auto-place landmarks (MediaPipe Face + Pose) — in browser
+   ============================================================ */
+let faceLandmarker = null;
+let poseLandmarker = null;
+let vision = null;
+let modelsReady = false;
+
+async function ensureModels(){
+  if(modelsReady) return;
+
+  const { FaceLandmarker, PoseLandmarker, FilesetResolver } = 
+    await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/vision_bundle.mjs");
+
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm"
+  );
+
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: { modelAssetPath: "…/face_landmarker.task" },
+    runningMode: "IMAGE",
+    numFaces: 1
+  });
+
+  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: { modelAssetPath: "…/pose_landmarker_lite.task" },
+    runningMode: "IMAGE",
+    numPoses: 1
+  });
+
+  modelsReady = true;
+}
+
+
+function canvasFromStageImage(){
+  if(!imgNode.image()) return null;
+  const w = imgNode.width();
+  const h = imgNode.height();
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  // draw exactly as shown on stage so coords match
+  ctx.drawImage(imgNode.image(), 0, 0, w, h);
+  return cv;
+}
+
+// Helper to clamp and place a marker safely
+function place(name, x, y){
+  const w = stage.width(), h = stage.height();
+  const px = Math.max(0, Math.min(w, x));
+  const py = Math.max(0, Math.min(h, y));
+  if(!markers[name]){
+    addMarker(name, px, py);
+  } else {
+    markers[name].position({x:px, y:py});
+  }
+}
+
+function avgPoint(list){
+  const n = list.length;
+  if(!n) return [NaN, NaN];
+  let x=0,y=0; for(const p of list){ x+=p[0]; y+=p[1]; }
+  return [x/n, y/n];
+}
+
+document.getElementById('autoSeed').addEventListener('click', async ()=>{
+  if(!imgNode.image()){
+    alert('Load an image first.');
+    return;
+  }
+  const btn = document.getElementById('autoSeed');
+  btn.classList.add('loading');
+  btn.textContent = 'Auto-placing…';
+
+  try{
+    await ensureModels();
+    const cv = canvasFromStageImage();
+    if(!cv) throw new Error('No image canvas');
+
+    // Run detectors
+    const faceRes = await faceLandmarker.detect(cv);
+    const poseRes = await poseLandmarker.detect(cv);
+
+    const w = cv.width, h = cv.height;
+
+    // ---------- Face mapping ----------
+    // Use common indices from Face Mesh:
+    // 10 = top of forehead region, 152 = chin
+    // 33 and 133 approx outer/inner left eye corners, 362 and 263 right
+    // 127 = left temple, 356 = right temple
+    let fm = null;
+    if(faceRes.faceLandmarks && faceRes.faceLandmarks.length){
+      fm = faceRes.faceLandmarks[0];
+      const px = (i) => [fm[i].x * w, fm[i].y * h];
+
+      const head_top = px(10);
+      const chin = px(152);
+      const eyeL = avgPoint([px(33), px(133)]);
+      const eyeR = avgPoint([px(362), px(263)]);
+      const headL = px(127);
+      const headR = px(356);
+
+      place('head_top', head_top[0], head_top[1]);
+      place('chin', chin[0], chin[1]);
+      place('eye_left', eyeL[0], eyeL[1]);
+      place('eye_right', eyeR[0], eyeR[1]);
+      place('head_left', headL[0], headL[1]);
+      place('head_right', headR[0], headR[1]);
+    }
+
+    // ---------- Pose mapping ----------
+    // Pose indices: 11 L shoulder, 12 R shoulder, 23 L hip, 24 R hip, 27 L ankle, 28 R ankle
+    let pm = null;
+    if(poseRes.landmarks && poseRes.landmarks.length){
+      pm = poseRes.landmarks[0];
+      const ppx = (i) => [pm[i].x * w, pm[i].y * h];
+
+      const shL = ppx(11), shR = ppx(12);
+      const hipL = ppx(23), hipR = ppx(24);
+      const ankL = ppx(27), ankR = ppx(28);
+
+      place('shoulder_left', shL[0], shL[1]);
+      place('shoulder_right', shR[0], shR[1]);
+      place('hip_left', hipL[0], hipL[1]);
+      place('hip_right', hipR[0], hipR[1]);
+
+      // neck_base: midpoint between shoulders, nudged down a bit
+      const neckX = (shL[0] + shR[0]) / 2;
+      const neckY = (shL[1] + shR[1]) / 2 + (Math.hypot(shL[0]-shR[0], shL[1]-shR[1]) * 0.05);
+      place('neck_base', neckX, neckY);
+
+      // crotch: midpoint between hips, nudged down a bit
+      const crotchX = (hipL[0] + hipR[0]) / 2;
+      const crotchY = (hipL[1] + hipR[1]) / 2 + (Math.hypot(hipL[0]-hipR[0], hipL[1]-hipR[1]) * 0.1);
+      place('crotch', crotchX, crotchY);
+
+      // feet: use ankles as ground contact proxy
+      place('foot_left', ankL[0], ankL[1]);
+      place('foot_right', ankR[0], ankR[1]);
+    }
+
+    layer.draw();
+    recalc();
+
+    // If we placed at least head_top, set the guide to chin next
+    if(markers.head_top){ setActiveStepByName('chin'); }
+
+    // Respect feet toggle
+    applyFeetVisibility();
+
+    // Fallback hint if nothing detected
+    if(!fm && !pm){
+      alert('Auto-place could not detect landmarks. Please position the dots manually and consider images with clearer full body framing.');
+    }
+
+  } catch(err){
+    console.error(err);
+    alert('Auto-place failed to run. This usually happens if the models could not be loaded. Please try again or place the points manually.');
+  } finally {
+    btn.classList.remove('loading');
+    btn.textContent = 'Auto-place landmarks (beta)';
+  }
+}
+);
 </script>
 </body>
 </html>
