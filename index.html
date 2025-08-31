@@ -96,7 +96,7 @@
         <div class="sub">Upload an image, place landmarks, and see ratios with the WAPS score.</div>
       </div>
       <div class="controls">
-        <span class="badge">v1.21</span>  <!-- Version number -->
+        <span class="badge">v1.22</span>                                                                              <!-- Version number -->
         <input type="file" id="file" accept="image/*" />
         <button class="btn" id="help">Help</button>
         <button class="btn" id="autoSeed">Auto-place landmarks</button>
@@ -208,7 +208,7 @@ let imgNode = new Konva.Image(); layer.add(imgNode);
 
 const markers = {};
 const markerStyleBase = { radius: 6, stroke: '#fff', strokeWidth: 2, draggable: true, shadowColor:'#000', shadowBlur:6, shadowOpacity:.25 };
-const haloStyle = { radius: 16, stroke: '#f75ecd', strokeWidth: 1.2, dash:[4,4], opacity: .9, listening: false };
+const haloStyle = { radius: 16, stroke: '#f75ecd', strokeWidth: 1.5, dash:[4,4], opacity: .9, listening: false };
 let halo = null;
 
 let currentStep = 0;
@@ -407,7 +407,7 @@ document.getElementById('exportPng').addEventListener('click', ()=>{
   const labels = [];
   Object.entries(markers).forEach(([name, c])=>{
     if(ignoreFeet && (name==="foot_left" || name==="foot_right")) return;
-    const t = new Konva.Text({ x: c.x()+8, y: c.y()-14, text: name, fontSize: 10, fill: '#cbbaff' });
+    const t = new Konva.Text({ x: c.x()+8, y: c.y()-14, text: name, fontSize: 10, fill: '#f75ecd' });
     layer.add(t); labels.push(t);
   });
   layer.draw();
@@ -636,4 +636,5 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
 </script>
 </body>
 </html>
+
 
