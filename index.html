@@ -86,6 +86,19 @@
 
     .badge{ font-size:.8rem; color:#cbbaff; border:1px solid var(--border); padding:4px 8px; border-radius:999px; background:#160b2c }
     .loading{ opacity:.6; pointer-events:none }
+
+    /* Secondary Adult Indicators */
+    .indicators{ margin-top:12px; display:grid; gap:10px; }
+    .indicators h4{ margin:0; font-size:1rem }
+    .indicators .row{ display:grid; grid-template-columns: 1fr; gap:8px; }
+    .indicators .checks{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:6px 12px }
+    .indicators label{ display:flex; gap:8px; align-items:flex-start; font-size:.92rem; color:var(--muted) }
+    .indicators small{ color:var(--muted); opacity:.9 }
+    @media (min-width: 880px){
+      .indicators .row{ grid-template-columns: .8fr .2fr; align-items:center }
+      .indicators .checks{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .indicators .count{ justify-self:end; color:var(--muted); font-weight:600 }
+    }
   </style>
 </head>
 <body>
@@ -96,7 +109,7 @@
         <div class="sub">Upload an image, place landmarks, and see ratios with the WAPS score.</div>
       </div>
       <div class="controls">
-        <span class="badge">v1.22</span>                                                                              <!-- Version number -->
+        <span class="badge">v1.23</span>
         <input type="file" id="file" accept="image/*" />
         <button class="btn" id="help">Help</button>
         <button class="btn" id="autoSeed">Auto-place landmarks</button>
@@ -130,6 +143,41 @@
           </thead>
           <tbody id="results"></tbody>
         </table>
+
+        <!-- Secondary Adult Indicators -->
+        <div class="indicators" id="indicators">
+          <h4>Secondary Adult Indicators</h4>
+
+          <div class="row">
+            <div>
+              <div style="font-weight:600; margin-bottom:6px">High-Confidence Indicators (HCIs)</div>
+              <div class="checks" id="hciChecks">
+                <label><input type="checkbox" name="hci" /> Facial definition</label>
+                <label><input type="checkbox" name="hci" /> Neck length and definition</label>
+                <label><input type="checkbox" name="hci" /> Hand structure and proportion</label>
+                <label><input type="checkbox" name="hci" /> Torso depth and ribcage volume</label>
+                <label><input type="checkbox" name="hci" /> Other clear adult-coding</label>
+              </div>
+              <small>If 2 or more are observed add +0.25 to WAPS.</small>
+            </div>
+            <div class="count"><span id="hciCount">0</span>/5</div>
+          </div>
+
+          <div class="row">
+            <div>
+              <div style="font-weight:600; margin-bottom:6px">Medium-Confidence Indicators (MCIs)</div>
+              <div class="checks" id="mciChecks">
+                <label><input type="checkbox" name="mci" /> Muscle tone and limb length</label>
+                <label><input type="checkbox" name="mci" /> Foot and ankle proportion</label>
+                <label><input type="checkbox" name="mci" /> Skin and surface detail</label>
+                <label><input type="checkbox" name="mci" /> Posture and bearing</label>
+                <label><input type="checkbox" name="mci" /> Other contextual adult-coding</label>
+              </div>
+              <small>If 3 or more are observed add +0.15 to WAPS.</small>
+            </div>
+            <div class="count"><span id="mciCount">0</span>/5</div>
+          </div>
+        </div>
 
         <div id="steps" style="margin-top:12px; display:grid; gap:8px">
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
@@ -214,6 +262,33 @@ let halo = null;
 let currentStep = 0;
 let ignoreFeet = false;
 
+/* ---------- Indicator state ---------- */
+const hciInputs = [];
+const mciInputs = [];
+
+function bindIndicators(){
+  const hci = document.querySelectorAll('input[name="hci"]');
+  const mci = document.querySelectorAll('input[name="mci"]');
+  hciInputs.length = 0; mciInputs.length = 0;
+  hci.forEach(el => { hciInputs.push(el); el.addEventListener('change', recalc); });
+  mci.forEach(el => { mciInputs.push(el); el.addEventListener('change', recalc); });
+}
+
+function countsAndBonus(){
+  const hciCount = hciInputs.filter(i => i.checked).length;
+  const mciCount = mciInputs.filter(i => i.checked).length;
+
+  document.getElementById('hciCount').textContent = hciCount;
+  document.getElementById('mciCount').textContent = mciCount;
+
+  let bonus = 0;
+  if(hciCount >= 2) bonus += 0.25;
+  if(mciCount >= 3) bonus += 0.15;
+
+  return { hciCount, mciCount, bonus };
+}
+
+/* ---------- Small helpers ---------- */
 function dist(a,b){ return Math.hypot(a.x()-b.x(), a.y()-b.y()); }
 function midY(a,b){ return (a+b)/2; }
 function fmt(v,isPct=false){ if(Number.isNaN(v)) return 'N/A'; return isPct ? v.toFixed(1)+'%' : v.toFixed(2) }
@@ -251,6 +326,8 @@ function recalc(){
   rEl.innerHTML = '';
 
   if(!markers.head_top || !markers.chin) {
+    // still update counts display even if base is not ready
+    countsAndBonus();
     document.getElementById('score').textContent = 'WAPS: N/A';
     return;
   }
@@ -310,9 +387,24 @@ function recalc(){
     rEl.appendChild(tr);
     if(effectiveScore!==null){ sum+=effectiveScore; n++; }
   }
-  const avg = n ? (sum/n) : null;
-  const verdict = avg===null ? 'N/A' : (avg>=1.5 ? 'Adult-like' : avg>=1.0 ? 'Ambiguous or adolescent range' : 'Juvenile-proportioned');
-  document.getElementById('score').textContent = `WAPS: ${avg===null?'N/A':avg.toFixed(2)}  |  ${verdict}`;
+
+  const baseAvg = n ? (sum/n) : null;
+
+  // Indicators
+  const { bonus } = countsAndBonus();
+  const finalAvg = baseAvg===null ? null : Math.min(2, baseAvg + bonus);
+
+  const verdict = finalAvg===null ? 'N/A'
+    : finalAvg>=1.5 ? 'Adult-like'
+    : finalAvg>=1.0 ? 'Ambiguous or adolescent range'
+    : 'Juvenile-proportioned';
+
+  const parts = [];
+  if(finalAvg!==null) parts.push(`WAPS: ${finalAvg.toFixed(2)}`);
+  if(baseAvg!==null) parts.push(`base ${baseAvg.toFixed(2)}`);
+  if(baseAvg!==null && bonus>0) parts.push(`indicators +${bonus.toFixed(2)}`);
+
+  document.getElementById('score').textContent = parts.length ? `${parts.join(' | ')}  |  ${verdict}` : 'WAPS: N/A';
 }
 
 /* ---------- Marker management ---------- */
@@ -394,6 +486,7 @@ document.getElementById('file').addEventListener('change', e=>{
       pointNames.forEach((p,i)=> addMarker(p, cx+(i%2?30:-30), cy+i*6));
 
       applyFeetVisibility();
+      bindIndicators();
       recalc();
       startGuide();
     };
@@ -470,7 +563,7 @@ function applyFeetVisibility(){
 }
 
 /* ============================================================
-   Auto-place landmarks (MediaPipe Face + Pose) — in browser
+   Auto-place landmarks (MediaPipe Face + Pose) - in browser
    ============================================================ */
 let faceLandmarker = null;
 let poseLandmarker = null;
@@ -502,7 +595,6 @@ async function ensureModels(){
   modelsReady = true;
 }
 
-
 function canvasFromStageImage(){
   if(!imgNode.image()) return null;
   const w = imgNode.width();
@@ -515,7 +607,6 @@ function canvasFromStageImage(){
   return cv;
 }
 
-// Helper to clamp and place a marker safely
 function place(name, x, y){
   const w = stage.width(), h = stage.height();
   const px = Math.max(0, Math.min(w, x));
@@ -548,17 +639,12 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
     const cv = canvasFromStageImage();
     if(!cv) throw new Error('No image canvas');
 
-    // Run detectors
     const faceRes = await faceLandmarker.detect(cv);
     const poseRes = await poseLandmarker.detect(cv);
 
     const w = cv.width, h = cv.height;
 
-    // ---------- Face mapping ----------
-    // Use common indices from Face Mesh:
-    // 10 = top of forehead region, 152 = chin
-    // 33 and 133 approx outer/inner left eye corners, 362 and 263 right
-    // 127 = left temple, 356 = right temple
+    // Face mapping
     let fm = null;
     if(faceRes.faceLandmarks && faceRes.faceLandmarks.length){
       fm = faceRes.faceLandmarks[0];
@@ -579,8 +665,7 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
       place('head_right', headR[0], headR[1]);
     }
 
-    // ---------- Pose mapping ----------
-    // Pose indices: 11 L shoulder, 12 R shoulder, 23 L hip, 24 R hip, 27 L ankle, 28 R ankle
+    // Pose mapping
     let pm = null;
     if(poseRes.landmarks && poseRes.landmarks.length){
       pm = poseRes.landmarks[0];
@@ -595,31 +680,25 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
       place('hip_left', hipL[0], hipL[1]);
       place('hip_right', hipR[0], hipR[1]);
 
-      // neck_base: midpoint between shoulders, nudged down a bit
       const neckX = (shL[0] + shR[0]) / 2;
       const neckY = (shL[1] + shR[1]) / 2 + (Math.hypot(shL[0]-shR[0], shL[1]-shR[1]) * 0.05);
       place('neck_base', neckX, neckY);
 
-      // crotch: midpoint between hips, nudged down a bit
       const crotchX = (hipL[0] + hipR[0]) / 2;
       const crotchY = (hipL[1] + hipR[1]) / 2 + (Math.hypot(hipL[0]-hipR[0], hipL[1]-hipR[1]) * 0.1);
       place('crotch', crotchX, crotchY);
 
-      // feet: use ankles as ground contact proxy
       place('foot_left', ankL[0], ankL[1]);
       place('foot_right', ankR[0], ankR[1]);
     }
 
     layer.draw();
+    bindIndicators();
     recalc();
 
-    // If we placed at least head_top, set the guide to chin next
     if(markers.head_top){ setActiveStepByName('chin'); }
-
-    // Respect feet toggle
     applyFeetVisibility();
 
-    // Fallback hint if nothing detected
     if(!fm && !pm){
       alert('Auto-place could not detect landmarks. Please position the dots manually and consider images with clearer full body framing.');
     }
@@ -631,10 +710,7 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
     btn.classList.remove('loading');
     btn.textContent = 'Auto-place landmarks';
   }
-}
-);
+});
 </script>
 </body>
 </html>
-
-
