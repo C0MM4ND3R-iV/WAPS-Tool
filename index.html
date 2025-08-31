@@ -3,14 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Figure Proportion Checker — v1.2</title>
+  <title>Figure Proportion Checker</title>
   <script src="https://unpkg.com/konva@9/konva.min.js"></script> 
   <!-- MediaPipe Tasks Vision -->
   <script type="module">
-  import { FaceLandmarker, PoseLandmarker, FilesetResolver } 
-    from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/vision_bundle.mjs";
-
-  window.MediapipeVision = { FaceLandmarker, PoseLandmarker, FilesetResolver };
+    import { FaceLandmarker, PoseLandmarker, FilesetResolver } 
+      from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/vision_bundle.mjs";
+    window.MediapipeVision = { FaceLandmarker, PoseLandmarker, FilesetResolver };
   </script>
   <style> 
     :root{
@@ -97,10 +96,10 @@
         <div class="sub">Upload an image, place landmarks, and see ratios with the WAPS score.</div>
       </div>
       <div class="controls">
-        <span class="badge">v1.2</span>
+        <span class="badge">v1.21</span>  <!-- Version number -->
         <input type="file" id="file" accept="image/*" />
         <button class="btn" id="help">Help</button>
-        <button class="btn" id="autoSeed">Auto-place landmarks (beta)</button>
+        <button class="btn" id="autoSeed">Auto-place landmarks</button>
         <button class="btn toggle" id="feetToggle" aria-pressed="false">Feet visible</button>
         <button class="btn" id="exportPng">Export PNG</button>
         <button class="btn" id="exportJson">Export JSON</button>
@@ -110,7 +109,7 @@
     <div class="grid">
       <div class="panel stage-wrap">
         <div id="stage"></div>
-        <div class="hint">Drag the colored dots to exact positions. Use Auto-place to get a starting guess. You can reopen the guide with Help.</div>
+        <div class="hint">Drag the colored dots to exact positions. Use Auto-place to get a starting guess.</div>
       </div>
 
       <div class="panel">
@@ -133,9 +132,6 @@
         </table>
 
         <div id="steps" style="margin-top:12px; display:grid; gap:8px">
-          <div class="hint">
-            Guided order: 1 Head top, 2 Chin, 3 Head left, 4 Head right, 5 Eye left, 6 Eye right, 7 Shoulder L, 8 Shoulder R, 9 Hip L, 10 Hip R, 11 Neck base, 12 Crotch, 13 Foot L, 14 Foot R.
-          </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
             <button class="btn ghost" id="prevStep">Previous</button>
             <button class="btn" id="nextStep">Next</button>
@@ -212,7 +208,7 @@ let imgNode = new Konva.Image(); layer.add(imgNode);
 
 const markers = {};
 const markerStyleBase = { radius: 6, stroke: '#fff', strokeWidth: 2, draggable: true, shadowColor:'#000', shadowBlur:6, shadowOpacity:.25 };
-const haloStyle = { radius: 16, stroke: '#cbbaff', strokeWidth: 1.2, dash:[4,4], opacity: .9, listening: false };
+const haloStyle = { radius: 16, stroke: '#f75ecd', strokeWidth: 1.2, dash:[4,4], opacity: .9, listening: false };
 let halo = null;
 
 let currentStep = 0;
@@ -633,10 +629,11 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
     alert('Auto-place failed to run. This usually happens if the models could not be loaded. Please try again or place the points manually.');
   } finally {
     btn.classList.remove('loading');
-    btn.textContent = 'Auto-place landmarks (beta)';
+    btn.textContent = 'Auto-place landmarks';
   }
 }
 );
 </script>
 </body>
 </html>
+
