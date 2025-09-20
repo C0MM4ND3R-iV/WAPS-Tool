@@ -108,6 +108,11 @@
     }
     .indicator-note{ color:var(--muted); font-size:.85rem }
 
+    /* Highlight the Feet toggle exactly like indicator buttons when ON */
+    .toggle.active, .toggle[aria-pressed="true"]{
+      background:var(--accent); color:#0a0420; border-color:transparent;
+      box-shadow:0 6px 18px rgba(124,92,255,.45);
+    }
   </style>
 </head>
 <body>
@@ -116,13 +121,13 @@
       <div>
         <h1>Figure Proportion Checker</h1>
         <div class="sub">Upload an image, place landmarks, and see ratios with the WAPS score.</div>
+		<div class="hint">Drag the colored dots to exact positions. Use Auto-place to get a starting guess.</div>
       </div>
       <div class="controls">
-        <span class="badge">v1.22</span>                                                                              <!-- Version number -->
+
         <input type="file" id="file" accept="image/*" />
-        <button class="btn" id="help">Help</button>
-        <button class="btn" id="autoSeed">Auto-place landmarks</button>
-        <button class="btn toggle" id="feetToggle" aria-pressed="false">Feet visible</button>
+        <button class="btn" id="autoSeed">🤖 Auto-place</button>
+        <button class="btn toggle" id="feetToggle" aria-pressed="false">Ignore Feet</button>
         <button class="btn" id="exportPng">Export PNG</button>
         <button class="btn" id="exportJson">Export JSON</button>
       </div>
@@ -131,7 +136,6 @@
     <div class="grid">
       <div class="panel stage-wrap">
         <div id="stage"></div>
-        <div class="hint">Drag the colored dots to exact positions. Use Auto-place to get a starting guess.</div>
       </div>
 
       <div class="panel">
@@ -185,7 +189,9 @@
 
 
         <div id="steps" style="margin-top:12px; display:grid; gap:8px">
+		  <div class="indicator-title">Landmarks</div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+            <button class="btn" id="restart">Restart</button>
             <button class="btn ghost" id="prevStep">Previous</button>
             <button class="btn" id="nextStep">Next</button>
             <button class="btn ghost" id="skipStep">Skip</button>
@@ -201,7 +207,8 @@
     </div>
 
     <div class="hint">
-      Processing stays on your device. This is a proportion estimator. It is not an age verification tool.
+	<span class="badge">v1.3</span>                                                                              <!-- Version number -->
+      ⚠️ Disclaimer: Processing stays on your device. This is a proportion estimator. It is not an age verification tool.️
     </div>
   </div>
 
@@ -309,7 +316,7 @@ function indicatorCountsAndBonus(){
 }
 
 
-let stage = new Konva.Stage({ container: 'stage', width: 900, height: 560 });
+let stage = new Konva.Stage({ container: 'stage', width: 560, height: 560 });
 let layer = new Konva.Layer(); stage.add(layer);
 let imgNode = new Konva.Image(); layer.add(imgNode);
 
@@ -319,7 +326,8 @@ const haloStyle = { radius: 16, stroke: '#f75ecd', strokeWidth: 1.5, dash:[4,4],
 let halo = null;
 
 let currentStep = 0;
-let ignoreFeet = false;
+/* default: feet OFF -> ignore feet -> N/A metrics until enabled */
+let ignoreFeet = true;
 
 function dist(a,b){ return Math.hypot(a.x()-b.x(), a.y()-b.y()); }
 function midY(a,b){ return (a+b)/2; }
@@ -420,18 +428,18 @@ function recalc(){
   }
   const avg = n ? (sum/n) : null;
 
-// Secondary indicators contribution
-const { bonus } = indicatorCountsAndBonus();
-const finalAvg = avg===null ? null : Math.min(2, avg + bonus);
+  // Secondary indicators contribution
+  const { bonus } = indicatorCountsAndBonus();
+  const finalAvg = avg===null ? null : Math.min(2, avg + bonus);
 
-const verdict = finalAvg===null ? 'N/A' : (finalAvg>=1.5 ? 'Adult-like' : finalAvg>=1.0 ? 'Ambiguous or adolescent range' : 'Juvenile-proportioned');
+  const verdict = finalAvg===null ? 'N/A' : (finalAvg>=1.5 ? 'Adult-like' : finalAvg>=1.0 ? 'Ambiguous or adolescent range' : 'Juvenile-proportioned');
 
-const parts = [];
-if(finalAvg!==null) parts.push(`WAPS: ${finalAvg.toFixed(2)}`);
-if(avg!==null) parts.push(`base ${avg.toFixed(2)}`);
-if(avg!==null && bonus>0) parts.push(`indicators +${bonus.toFixed(2)}`);
+  const parts = [];
+  if(finalAvg!==null) parts.push(`WAPS: ${finalAvg.toFixed(2)}`);
+  if(avg!==null) parts.push(`base ${avg.toFixed(2)}`);
+  if(avg!==null && bonus>0) parts.push(`indicators +${bonus.toFixed(2)}`);
 
-document.getElementById('score').textContent = parts.length ? `${parts.join(' | ')}  |  ${verdict}` : 'WAPS: N/A';
+  document.getElementById('score').textContent = parts.length ? `${parts.join(' | ')}  |  ${verdict}` : 'WAPS: N/A';
 }
 
 /* ---------- Marker management ---------- */
@@ -491,34 +499,68 @@ function prevStep(){
   }
 }
 
-/* ---------- File load ---------- */
-document.getElementById('file').addEventListener('change', e=>{
-  const file = e.target.files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => {
-      resetMarkers();
-      const maxW = Math.min(980, window.innerWidth - 80);
-      const maxH = 520;
-      const scale = Math.min(maxW / img.width, maxH / img.height);
-      const w = Math.round(img.width * scale);
-      const h = Math.round(img.height * scale);
+/* ---------- File load (width-driven, max 590) ---------- */
+document.getElementById('file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-      imgNode.image(img); imgNode.width(w); imgNode.height(h);
-      stage.size({ width:w, height:h }); layer.draw();
+  const objectUrl = URL.createObjectURL(file);
+  const img = new Image();
 
-      // seed markers near center
-      const cx=w*0.5, cy=h*0.35;
-      pointNames.forEach((p,i)=> addMarker(p, cx+(i%2?30:-30), cy+i*6));
+  img.onload = () => {
+    URL.revokeObjectURL(objectUrl); // free memory
+    resetMarkers();
 
-      applyFeetVisibility();
-      recalc();
-      startGuide();
-    };
-    img.src = reader.result;
+    // Target width: up to 590, but never wider than the panel
+    const stageEl = document.getElementById('stage');
+    const availW = (stageEl.parentElement?.clientWidth || stageEl.clientWidth || 590);
+    const targetW = Math.min(590, Math.max(320, availW));
+
+    // Do not upscale beyond the image native width
+    const scale = Math.min(targetW / img.width, 1);
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+
+    imgNode.image(img);
+    imgNode.width(w);
+    imgNode.height(h);
+    stage.size({ width: w, height: h });
+    layer.draw();
+
+	// seed markers in rough human figure shape
+	const cx = w * 0.5;
+	const cy = h * 0.3; // head region
+
+	// head
+	addMarker("head_top", cx, cy);
+	addMarker("chin", cx, cy + 40);
+	addMarker("head_left", cx - 30, cy + 20);
+	addMarker("head_right", cx + 30, cy + 20);
+	addMarker("eye_left", cx - 12, cy + 20);
+	addMarker("eye_right", cx + 12, cy + 20);
+
+	// shoulders
+	addMarker("shoulder_left", cx - 60, cy + 70);
+	addMarker("shoulder_right", cx + 60, cy + 70);
+
+	// torso midline
+	addMarker("neck_base", cx, cy + 60);
+	addMarker("crotch", cx, cy + 160);
+
+	// hips
+	addMarker("hip_left", cx - 40, cy + 150);
+	addMarker("hip_right", cx + 40, cy + 150);
+
+	// feet (approx ground level)
+	addMarker("foot_left", cx - 30, cy + 280);
+	addMarker("foot_right", cx + 30, cy + 280);
+	
+    applyFeetVisibility();
+    recalc();
+    startGuide();
   };
-  reader.readAsDataURL(file);
+
+  img.src = objectUrl;
 });
 
 /* ---------- Export buttons ---------- */
@@ -551,7 +593,7 @@ document.getElementById('exportJson').addEventListener('click', ()=>{
 });
 
 /* ---------- Buttons ---------- */
-document.getElementById('help').addEventListener('click', ()=>{
+document.getElementById('restart').addEventListener('click', ()=>{
   if(!imgNode.image()){ alert('Load an image first.'); return; }
   startGuide();
 });
@@ -563,6 +605,7 @@ document.getElementById('skipStep').addEventListener('click', nextStep);
 bindIndicatorButtons();
 
 document.getElementById('feetToggle').addEventListener('click', ()=>{
+  // toggle: ON means feet visible -> ignoreFeet = false
   ignoreFeet = !ignoreFeet;
   applyFeetVisibility();
   recalc();
@@ -574,8 +617,15 @@ document.getElementById('feetToggle').addEventListener('click', ()=>{
 /* ---------- Feet visibility ---------- */
 function applyFeetVisibility(){
   const btn = document.getElementById('feetToggle');
-  btn.setAttribute('aria-pressed', ignoreFeet ? 'true' : 'false');
-  btn.textContent = ignoreFeet ? 'Feet not visible' : 'Feet visible';
+
+  // "On" when feet are included in calculations
+  const on = !ignoreFeet;
+
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.classList.toggle('active', on);
+
+  btn.textContent = ignoreFeet ? 'Ignore Feet' : 'Include Feet';
+
 
   const footNames = ["foot_left","foot_right"];
   footNames.forEach(n=>{
@@ -687,7 +737,7 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
       const px = (i) => [fm[i].x * w, fm[i].y * h];
 
       const head_top = px(10);
-      const chin = px(152);
+      const chin = px(175);
       const eyeL = avgPoint([px(33), px(133)]);
       const eyeR = avgPoint([px(362), px(263)]);
       const headL = px(127);
@@ -719,12 +769,12 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
 
       // neck_base: midpoint between shoulders, nudged down a bit
       const neckX = (shL[0] + shR[0]) / 2;
-      const neckY = (shL[1] + shR[1]) / 2 + (Math.hypot(shL[0]-shR[0], shL[1]-shR[1]) * 0.05);
+      const neckY = (shL[1] + shR[1]) / 2;
       place('neck_base', neckX, neckY);
 
       // crotch: midpoint between hips, nudged down a bit
       const crotchX = (hipL[0] + hipR[0]) / 2;
-      const crotchY = (hipL[1] + hipR[1]) / 2 + (Math.hypot(hipL[0]-hipR[0], hipL[1]-hipR[1]) * 0.1);
+      const crotchY = (hipL[1] + hipR[1]) / 2 + (Math.hypot(hipL[0]-hipR[0], hipL[1]-hipR[1]) * 0.25);
       place('crotch', crotchX, crotchY);
 
       // feet: use ankles as ground contact proxy
@@ -736,14 +786,15 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
     recalc();
 
     // If we placed at least head_top, set the guide to chin next
-    if(markers.head_top){ setActiveStepByName('chin'); }
+    // if(markers.head_top){ setActiveStepByName('chin'); }
+	setActiveStepByName('head_top');
 
     // Respect feet toggle
     applyFeetVisibility();
 
     // Fallback hint if nothing detected
     if(!fm && !pm){
-      alert('Auto-place could not detect landmarks. Please position the dots manually and consider images with clearer full body framing.');
+      alert('Auto-place could not detect landmarks. Please position the dots manually or consider images with clearer full body framing.');
     }
 
   } catch(err){
@@ -751,12 +802,13 @@ document.getElementById('autoSeed').addEventListener('click', async ()=>{
     alert('Auto-place failed to run. This usually happens if the models could not be loaded. Please try again or place the points manually.');
   } finally {
     btn.classList.remove('loading');
-    btn.textContent = 'Auto-place landmarks';
+    btn.textContent = '🔄 Auto-place';
   }
 }
 );
+
+/* initialize feet toggle UI for default OFF state */
+applyFeetVisibility();
 </script>
 </body>
 </html>
-
-
