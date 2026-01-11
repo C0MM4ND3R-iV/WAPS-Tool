@@ -207,7 +207,7 @@
     </div>
 
     <div class="hint">
-	<span class="badge">v1.3</span>                                                                              <!-- Version number -->
+	<span class="badge">v1.4</span>                                                                              <!-- Version number -->
       ⚠️ Disclaimer: Processing stays on your device. This is a proportion estimator. It is not an age verification tool.️
     </div>
   </div>
@@ -390,8 +390,18 @@ function recalc(){
     shoulder_head: shoulder && headW ? shoulder / headW : NaN,
     torso_head: torso && headH ? torso / headH : NaN,
     leg_total_pct: legs && totalH ? (legs / totalH) * 100 : NaN,
-    eye_in_head_pct: headH && !Number.isNaN(eyeY) ? (Math.abs(eyeY - markers.head_top.y()) / headH) * 100 : NaN,
-    hip_shoulder_pct: hip && shoulder ? (hip / shoulder) * 100 : NaN
+	eye_in_head_pct: headH && !Number.isNaN(eyeY)
+	  ? Math.max(
+		  0,
+		  Math.min(
+			100,
+			(1 - ((eyeY - markers.head_top.y()) / headH)) * 100
+		  )
+		)
+	  : NaN,
+	hip_shoulder_pct: hip && shoulder
+	  ? Math.max(0, Math.min(100, (hip / shoulder) * 100))
+	  : NaN
   };
 
   const scoreFns = {
@@ -812,3 +822,4 @@ applyFeetVisibility();
 </script>
 </body>
 </html>
+
